@@ -1,0 +1,48 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tools:
+    name: ROM tooling tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s tests -v
+
+  windows:
+    name: Windows x64 compile check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure (CI stub program)
+        run: >
+          cmake -S . -B build/ci -A x64
+          -DNSL_GENERATED_DIR="${{ github.workspace }}/tests/stub_generated"
+      - name: Build
+        run: cmake --build build/ci --config Release
+
+  linux:
+    name: Linux x86-64 compile check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure (CI stub program)
+        run: >
+          cmake -S . -B build/ci -DCMAKE_BUILD_TYPE=Release
+          -DNSL_GENERATED_DIR="${{ github.workspace }}/tests/stub_generated"
+      - name: Build
+        run: cmake --build build/ci -j

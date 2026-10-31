@@ -1,0 +1,37 @@
+# Build output
+build/
+out/
+*.obj
+*.o
+*.lib
+*.exe
+*.pdb
+*.ilk
+*.AppImage
+*.AppImage.zsync
+
+# Player-supplied ROMs and derived data — never commit
+rom/
+*.zip
+!tools/core/**/*.zip
+*.bin
+!tests/fixtures/*.bin
+nvram/
+eeprom
+*.nv
+*.wav
+*.png
+!docs/**/*.png
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editors / OS
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

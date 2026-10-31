@@ -1,0 +1,4 @@
+[submodule "tools/core"]
+	path = tools/core
+	url = https://github.com/cheviman/arcade-decomp.git
+	branch = tmnt
