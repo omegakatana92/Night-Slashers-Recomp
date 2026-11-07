@@ -52,6 +52,8 @@ int main(int argc, char **argv) {
     const char *program_path = "build/assets/program.bin";
     const char *hash_path = NULL;
     const char *eeprom_path = NULL;
+    const char *save_eeprom_path = NULL;
+    const char *dump_ram_path = NULL;
     int trace = 0;
     int trace_cpu = 0;
     int trace_after = 0;
@@ -69,6 +71,10 @@ int main(int argc, char **argv) {
             hash_path = argv[++index];
         } else if (!strcmp(argv[index], "--eeprom") && index + 1 < argc) {
             eeprom_path = argv[++index];
+        } else if (!strcmp(argv[index], "--save-eeprom") && index + 1 < argc) {
+            save_eeprom_path = argv[++index];
+        } else if (!strcmp(argv[index], "--dump-ram") && index + 1 < argc) {
+            dump_ram_path = argv[++index];
         } else if (!strcmp(argv[index], "--trace")) {
             trace = 1;
         } else if (!strcmp(argv[index], "--trace-cpu") && index + 1 < argc) {
@@ -144,6 +150,16 @@ int main(int argc, char **argv) {
         }
     }
     if (hashes) fclose(hashes);
+    if (save_eeprom_path && nsl_machine_save_eeprom(save_eeprom_path) != 0) {
+        fprintf(stderr, "cannot write EEPROM image %s\n", save_eeprom_path);
+    }
+    if (dump_ram_path) {
+        FILE *dump = fopen(dump_ram_path, "wb");
+        if (dump) {
+            fwrite(nsl_machine.ram, 1, sizeof(nsl_machine.ram), dump);
+            fclose(dump);
+        }
+    }
 
     printf("frames=%d irqs=%llu cycles=%llu pc=%06X mode=%u\n", frames,
            (unsigned long long)nsl_cpu.irq_count,

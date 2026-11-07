@@ -78,6 +78,7 @@ void nsl_machine_init(uint8_t *decrypted_program);
 void nsl_machine_set_inputs(uint16_t in0, uint16_t in1);
 void nsl_machine_set_vblank(int active);
 int nsl_machine_load_eeprom(const char *path);
+int nsl_machine_save_eeprom(const char *path);
 void nsl_machine_set_default_inputs(void);
 void nsl_machine_render(void);
 

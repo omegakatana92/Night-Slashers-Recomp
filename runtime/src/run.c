@@ -13,22 +13,18 @@ void nsl_tick(unsigned instructions) {
     nsl_cpu.cycles += instructions;
 }
 
+/*
+ * Runs the board for exactly one video frame of CPU time. A frame ends at the start
+ * of VBLANK, where MAME's irq0_line_assert raises the ARM IRQ line; the game clears
+ * it by writing 0x140000. The scheduler never requires the game to take the IRQ, so
+ * code that runs with interrupts masked (EEPROM tests, POST) simply spans frames.
+ */
 int nsl_run_frame(void) {
-    uint32_t target = nsl_cpu.vblank_count + 1;
-    uint64_t budget = nsl_cpu.cycles + NSL_FRAME_CYCLES * 8;
+    uint64_t frame_end = nsl_cpu.next_irq_cycle;
 
-    while (nsl_cpu.vblank_count < target) {
+    while (nsl_cpu.cycles < frame_end) {
         if (nsl_cpu.fault || nsl_cpu.halted) {
             return -1;
-        }
-        if (nsl_cpu.cycles > budget) {
-            nsl_cpu_fault("frame did not reach vblank within %u cycles",
-                          NSL_FRAME_CYCLES * 8);
-            return -1;
-        }
-        if (nsl_cpu.cycles >= nsl_cpu.next_irq_cycle) {
-            nsl_cpu.pending_irq = 1;
-            nsl_cpu.next_irq_cycle += NSL_FRAME_CYCLES;
         }
         if (nsl_machine.vblank_active && nsl_cpu.cycles >= nsl_machine.vblank_end_cycle) {
             nsl_machine_set_vblank(0);
@@ -36,8 +32,13 @@ int nsl_run_frame(void) {
         nsl_cpu_check_irq();
         nsl_dispatch();
     }
+    /* VBLANK begins: latch the frame, raise IRQ0 and the VBLANK input bit. */
+    nsl_cpu.next_irq_cycle = frame_end + NSL_FRAME_CYCLES;
+    nsl_cpu.pending_irq = 1;
+    nsl_cpu.vblank_count++;
+    nsl_machine_set_vblank(1);
+    nsl_machine.vblank_end_cycle = frame_end + NSL_VBLANK_CYCLES;
     nsl_machine.frame_count++;
-    nsl_machine_set_default_inputs();
     nsl_machine_render();
     return 0;
 }

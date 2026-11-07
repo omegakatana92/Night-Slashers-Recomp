@@ -1,4 +1,19 @@
-# Known issues and current blocker
+# Known issues
+
+## Fixed 2026-11-07: boot no longer stops in the EEPROM/settings path
+
+See `docs/milestones/2026-11-07-boot-fixed.md`. The game now initialises a blank
+EEPROM, passes its checks and runs its main loop with VBLANK IRQs. The original
+analysis is kept below for history.
+
+## Current limitations
+
+- Video renderer is not yet a DECO32 renderer (work in progress).
+- Audio, SDL2 front end, controller mapping and AppImage are not implemented yet.
+
+---
+
+## (historical) Boot stopped in the EEPROM/settings path
 
 ## Boot stops in the EEPROM/settings path
 

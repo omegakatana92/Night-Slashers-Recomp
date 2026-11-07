@@ -12,22 +12,36 @@
 
 NslMachine nsl_machine;
 
-static uint8_t eeprom_do;
+/* 93C46 (16-bit organisation), modelled on MAME's eeprom_serial_93cxx_device
+ * (src/devices/machine/eepromser.cpp, eeprom.cpp). */
 static int eeprom_cs, eeprom_clk, eeprom_di;
 enum { EE_RESET, EE_START, EE_COMMAND, EE_READ, EE_WRITE, EE_COMPLETE };
 static int eeprom_state;
 static int eeprom_bits;
 static unsigned eeprom_accum;
 static unsigned eeprom_address;
-static uint16_t eeprom_shift;
+static uint32_t eeprom_shift;
 static uint16_t eeprom_data[64];
+static int eeprom_locked;
+static uint64_t eeprom_ready_cycle;   /* CPU cycle at which the write cycle ends */
 
-static uint16_t bitswap16_pos(uint16_t value, const unsigned char *positions) {
-    uint16_t result = 0;
-    for (int index = 0; index < 16; index++) {
-        result = (uint16_t)((result << 1) | ((value >> positions[index]) & 1));
+/* MAME eeprom.cpp operation times at the 7 MHz ARM clock. */
+#define EE_WRITE_CYCLES     (7000000ull * 1750 / 1000000)
+#define EE_ERASE_CYCLES     (7000000ull * 1000 / 1000000)
+#define EE_ALL_CYCLES       (7000000ull * 8000 / 1000000)
+
+static int eeprom_ready(void) {
+    return nsl_cpu.cycles >= eeprom_ready_cycle;
+}
+
+static int eeprom_do_read(void) {
+    if (eeprom_state == EE_READ) {
+        return (eeprom_shift >> 31) & 1;
     }
-    return result;
+    if (eeprom_state == EE_START) {
+        return eeprom_ready();
+    }
+    return 1;
 }
 
 void nsl_machine_set_default_inputs(void) {
@@ -55,11 +69,13 @@ void nsl_machine_init(uint8_t *decrypted_program) {    memset(&nsl_machine, 0, s
     }
     nsl_machine.deco_bank = 0;
     nsl_machine.deco_latchaddr = 0xFFFF;
-    eeprom_do = 1;
     for (unsigned index = 0; index < 64; index++) {
         eeprom_data[index] = 0xFFFF;
     }
     eeprom_state = EE_RESET;
+    eeprom_cs = eeprom_clk = eeprom_di = 0;
+    eeprom_locked = 1;
+    eeprom_ready_cycle = 0;
     for (unsigned index = 0; index < sizeof(nsl_machine.eeprom); index++) {
         nsl_machine.eeprom[index] = 0xFF;
     }
@@ -83,18 +99,27 @@ int nsl_machine_load_eeprom(const char *path) {
     return 0;
 }
 
-/* ---- 93C46 serial EEPROM (MAME's eeprom_serial_93cxx_device) -------------- */
+int nsl_machine_save_eeprom(const char *path) {
+    FILE *file = fopen(path, "wb");
+    if (!file) {
+        return -1;
+    }
+    unsigned char raw[128];
+    for (unsigned index = 0; index < 64; index++) {      /* MAME .nv layout: u16 LE */
+        raw[index * 2] = (unsigned char)(eeprom_data[index] & 0xFF);
+        raw[index * 2 + 1] = (unsigned char)(eeprom_data[index] >> 8);
+    }
+    size_t put = fwrite(raw, 1, sizeof(raw), file);
+    int ok = fclose(file) == 0 && put == sizeof(raw);
+    return ok ? 0 : -1;
+}
 
-static void eeprom_clock(int rising) {
-    if (eeprom_state == EE_RESET) {
-        return;
-    }
-    if (!rising) {
-        return;
-    }
+/* ---- 93C46 serial EEPROM (MAME's eeprom_serial_base_device::handle_event) -- */
+
+static void eeprom_clock_rising(void) {
     switch (eeprom_state) {
     case EE_START:
-        if (eeprom_di) {
+        if (eeprom_di && eeprom_ready()) {
             eeprom_state = EE_COMMAND;
             eeprom_accum = 0;
             eeprom_bits = 0;
@@ -109,47 +134,69 @@ static void eeprom_clock(int rising) {
             if (nsl_machine.trace_eeprom) {
                 fprintf(stderr, "eeprom cmd %u addr %02X\n", command, eeprom_address);
             }
-            if (command == 2) {                 /* read */
+            switch (command) {
+            case 2:                                     /* READ: dummy 0 first */
                 eeprom_shift = 0;
-                eeprom_do = 0;                  /* the dummy bit before the first data bit */
                 eeprom_state = EE_READ;
-            } else if (command == 1) {          /* write */
-                eeprom_accum = 0;
+                break;
+            case 1:                                     /* WRITE */
+                eeprom_shift = 0;
                 eeprom_state = EE_WRITE;
-            } else if (command == 3) {          /* erase */
+                break;
+            case 3:                                     /* ERASE */
+                if (eeprom_locked) { eeprom_state = EE_RESET; break; }
                 eeprom_data[eeprom_address] = 0xFFFF;
-                eeprom_do = 1;
+                eeprom_ready_cycle = nsl_cpu.cycles + EE_ERASE_CYCLES;
                 eeprom_state = EE_COMPLETE;
-            } else {                             /* lock/unlock/erase-all: unsupported */
-                eeprom_do = 1;
-                eeprom_state = EE_COMPLETE;
+                break;
+            default:
+                switch (eeprom_address >> 4) {
+                case 0: eeprom_locked = 1; eeprom_state = EE_RESET; break;     /* EWDS */
+                case 1: eeprom_state = EE_WRITE; eeprom_shift = 0;              /* WRAL */
+                        eeprom_address = 0x40; break;
+                case 2:                                                         /* ERAL */
+                    if (eeprom_locked) { eeprom_state = EE_RESET; break; }
+                    for (unsigned i = 0; i < 64; i++) eeprom_data[i] = 0xFFFF;
+                    eeprom_ready_cycle = nsl_cpu.cycles + EE_ALL_CYCLES;
+                    eeprom_state = EE_COMPLETE;
+                    break;
+                default: eeprom_locked = 0; eeprom_state = EE_RESET; break;    /* EWEN */
+                }
+                break;
             }
         }
         break;
-    case EE_READ:
-        if (eeprom_bits == 0) {
-            eeprom_shift = eeprom_data[eeprom_address];
-            eeprom_do = (eeprom_shift >> 15) & 1;
-            eeprom_bits = 1;
+    case EE_READ: {
+        int bit_index = eeprom_bits++;
+        if (bit_index == 0) {
+            eeprom_shift = (uint32_t)eeprom_data[eeprom_address] << 16;
             if (nsl_machine.trace_eeprom) {
-                fprintf(stderr, "eeprom read %02X = %04X\n", eeprom_address, eeprom_shift);
+                fprintf(stderr, "eeprom read %02X = %04X\n", eeprom_address,
+                        eeprom_data[eeprom_address]);
             }
         } else {
-            eeprom_shift <<= 1;
-            eeprom_do = (eeprom_shift >> 15) & 1;
-            eeprom_bits++;
+            eeprom_shift = (eeprom_shift << 1) | 1;
         }
         break;
+    }
     case EE_WRITE:
-        eeprom_accum = (eeprom_accum << 1) | (unsigned)eeprom_di;
+        eeprom_shift = (eeprom_shift << 1) | (unsigned)eeprom_di;
         if (++eeprom_bits == 16) {
-            static const unsigned char swap[16] = { 8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7 };
-            eeprom_data[eeprom_address] = bitswap16_pos((uint16_t)eeprom_accum, swap);
-            eeprom_do = 1;
+            if (eeprom_locked) {
+                eeprom_state = EE_RESET;
+                break;
+            }
+            if (eeprom_address == 0x40) {
+                for (unsigned i = 0; i < 64; i++) eeprom_data[i] &= (uint16_t)eeprom_shift;
+                eeprom_ready_cycle = nsl_cpu.cycles + EE_ALL_CYCLES;
+            } else {
+                eeprom_data[eeprom_address] = (uint16_t)eeprom_shift;
+                eeprom_ready_cycle = nsl_cpu.cycles + EE_WRITE_CYCLES;
+            }
             eeprom_state = EE_COMPLETE;
             if (nsl_machine.trace_eeprom) {
                 fprintf(stderr, "eeprom write %02X = %04X\n", eeprom_address,
-                        eeprom_data[eeprom_address]);
+                        (unsigned)(eeprom_shift & 0xFFFF));
             }
         }
         break;
@@ -158,28 +205,28 @@ static void eeprom_clock(int rising) {
     }
 }
 
+/* MAME fghthist_common_state::eeprom_w: clk_write, di_write, then cs_write. */
 static void eeprom_write(uint8_t value) {
     int cs = (value >> 6) & 1;
     int clk = (value >> 5) & 1;
     int di = (value >> 4) & 1;
-    /* MAME's fghthist eeprom_w clocks first, then sets DI, then sets CS; the
-     * EEPROM samples the DI that was present before this write. */
     if (clk != eeprom_clk) {
         eeprom_clk = clk;
-        eeprom_clock(clk);
+        if (clk && eeprom_state != EE_RESET) {
+            eeprom_clock_rising();
+        }
     }
     eeprom_di = di;
     if (cs != eeprom_cs) {
         eeprom_cs = cs;
         if (cs) {
-            eeprom_state = EE_START;
-            eeprom_bits = 0;
-            eeprom_accum = 0;
-            eeprom_do = 1;
+            if (eeprom_state == EE_RESET) {
+                eeprom_state = EE_START;
+            }
         } else {
             eeprom_state = EE_RESET;
-            eeprom_do = 1;
         }
+        eeprom_bits = 0;
     }
 }
 
@@ -219,7 +266,7 @@ static uint16_t deco_read_protport(uint16_t address) {
     if (location == -1) {
         data = nsl_machine.inputs_in0;
     } else if (location == -2) {
-        data = (uint16_t)(eeprom_do ? 1 : 0);
+        data = (uint16_t)eeprom_do_read();
     } else if (location == -3) {
         data = nsl_machine.inputs_in1;
     } else {
@@ -327,7 +374,7 @@ static void trace_write(uint32_t address, uint32_t value) {
 }
 
 uint32_t nsl_bus_read8(uint32_t address) {
-    address &= NSL_MASK26;
+    address &= NSL_ADDR26;
     trace_read(address);
     if (address < NSL_PROGRAM_SIZE) {
         return nsl_machine.program[address];
@@ -340,11 +387,11 @@ uint32_t nsl_bus_read8(uint32_t address) {
         if (address == 0x120021) return (nsl_machine.inputs_in0 >> 8) & 0xFF;
         if (address == 0x120024) return nsl_machine.inputs_in1 & 0xFF;
         if (address == 0x120025) return (nsl_machine.inputs_in1 >> 8) & 0xFF;
-        if (address == 0x120028) return 0xFE | eeprom_do;
+        if (address == 0x120028) return 0xFE | (uint32_t)eeprom_do_read();
         return 0;
     }
     if (address == 0x150000) {
-        return 0xFE | eeprom_do;
+        return 0xFE | (uint32_t)eeprom_do_read();
     }
     if (address >= 0x163000 && address < 0x1630A0) {
         return nsl_machine.ace[address - 0x163000];
@@ -384,7 +431,7 @@ uint32_t nsl_bus_read8(uint32_t address) {
 }
 
 uint32_t nsl_bus_read16(uint32_t address) {
-    address &= NSL_MASK26;
+    address &= NSL_ADDR26;
     if (address >= 0x200000 && address < 0x208000) {
         return deco104_read(address);
     }
@@ -420,7 +467,7 @@ uint32_t nsl_bus_read32(uint32_t address) {
 }
 
 void nsl_bus_write8(uint32_t address, uint32_t value) {
-    address &= NSL_MASK26;
+    address &= NSL_ADDR26;
     trace_write(address, value);
     if (address >= 0x100000 && address < 0x120000) {
         nsl_machine.ram[address - 0x100000] = (uint8_t)value;
@@ -493,7 +540,7 @@ void nsl_bus_write8(uint32_t address, uint32_t value) {
 }
 
 void nsl_bus_write16(uint32_t address, uint32_t value) {
-    address &= NSL_MASK26;
+    address &= NSL_ADDR26;
     if (address >= 0x168000 && address < 0x16A000) {
         nsl_machine.palette_buffer[(address - 0x168000) >> 1] = (uint16_t)value;
         return;
@@ -544,7 +591,9 @@ void nsl_bus_write32(uint32_t address, uint32_t value) {
 
 /* ---- board devices ----------------------------------------------------- */
 
+/* MAME vblank_ack_w: clears the ARM IRQ line (asserted by irq0_line_assert). */
 void nsl_vblank_ack(void) {
+    nsl_cpu.pending_irq = 0;
     nsl_machine.vblank_ack_count++;
 }
 

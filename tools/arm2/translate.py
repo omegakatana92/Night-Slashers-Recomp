@@ -88,6 +88,13 @@ class BlockWriter:
             body.append("nsl_cpu.shift_carry = nsl_cpu.c;")
         if insn.set_flags and insn.opcode in (0x0, 0x1, 0x8, 0x9, 0xC, 0xD, 0xE, 0xF):
             body.append("nsl_cpu.shift_carry = nsl_cpu.c;")
+        if operand is not None and not operand.immediate and op2 != reg(operand.rm):
+            # Evaluate the shifter into its own statement: nsl_shift_imm/reg update
+            # nsl_cpu.shift_carry, and C leaves the order of argument evaluation
+            # unspecified, so the carry must not be read in the same call expression.
+            shifted = f"s{self.address & 0xFFFF:x}"
+            body.append(f"uint32_t {shifted} = {op2};")
+            op2 = shifted
         rn = reg(insn.rn) if insn.rn != 15 else u32(insn.pc_value)
         if name in ("and", "eor", "orr", "bic"):
             op = {"and": "&", "eor": "^", "orr": "|", "bic": "& ~"}[name]
@@ -157,11 +164,13 @@ class BlockWriter:
             offset = f"0x{insn.offset:X}u"
         if insn.pre_indexed:
             sign = "+" if insn.up else "-"
-            address = f"(({base} {sign} {offset}) & 0x03FFFFFCu)"
-            writeback = f"{reg(insn.rn)} = ({base} {'+' if insn.up else '-'} {offset}) & 0x03FFFFFCu;" if insn.writeback else None
+            # The bus helpers truncate to 26 bits; byte accesses keep A1:A0 and word
+            # loads use them for the ARM2 rotation, so nothing is aligned here.
+            address = f"(({base} {sign} {offset}) & 0x03FFFFFFu)"
+            writeback = f"{reg(insn.rn)} = {base} {'+' if insn.up else '-'} {offset};" if insn.writeback else None
             return address, writeback
-        address = f"({base} & 0x03FFFFFCu)"
-        writeback = f"{reg(insn.rn)} = ({base} {'+' if insn.up else '-'} {offset}) & 0x03FFFFFCu;"
+        address = f"({base} & 0x03FFFFFFu)"
+        writeback = f"{reg(insn.rn)} = {base} {'+' if insn.up else '-'} {offset};"
         return address, writeback
 
     def emit_ldr(self, insn: Instruction) -> None:

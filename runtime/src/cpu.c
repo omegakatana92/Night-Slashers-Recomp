@@ -48,7 +48,7 @@ void nsl_cpu_reset(void) {
     nsl_cpu.mode = 3;          /* ARM reset enters SVC mode */
     nsl_cpu.i = 1;
     nsl_cpu.f = 1;
-    nsl_cpu.next_irq_cycle = NSL_FRAME_CYCLES;
+    nsl_cpu.next_irq_cycle = NSL_VBLANK_START_CYCLES;
 }
 
 uint32_t nsl_get_psr(void) {
@@ -103,8 +103,6 @@ void nsl_write_pc_and_psr(uint32_t value) {
     nsl_cpu.f = (value >> 26) & 1;
     nsl_cpu.pc = value & NSL_MASK26;
     if (old_mode == 2 && nsl_cpu.mode != 2) {
-        nsl_cpu.vblank_count++;
-        nsl_machine_set_vblank(0);
         if (nsl_cpu.trace_irq) {
             fprintf(stderr, "IRQ leave to %06X mode %u sp %08X r1 %08X\n",
                     nsl_cpu.pc, nsl_cpu.mode, nsl_cpu.r[13], nsl_cpu.r[1]);
@@ -144,12 +142,9 @@ void nsl_cpu_take_irq(void) {
     nsl_cpu.r[14] = (link & NSL_MASK26) | (cpsr & 0xF0000000u)
                   | ((cpsr & (NSL_PSR_I | NSL_PSR_F)) << 20) | (cpsr & 3);
     nsl_cpu.i = 1;
-    nsl_cpu.pending_irq = 0;
     nsl_cpu.pc = 0x18;
     nsl_cpu.irq_count++;
     nsl_cpu.cycles += 4;
-    nsl_machine_set_vblank(1);
-    nsl_machine.vblank_end_cycle = nsl_cpu.cycles + 15028;  /* 34 blank lines * 442 */
     if (nsl_cpu.trace_irq) {
         fprintf(stderr, "IRQ enter from %06X -> lr %08X sp %08X mode %u r1 %08X\n",
                 link, nsl_cpu.r[14], nsl_cpu.r[13], nsl_cpu.mode, nsl_cpu.r[1]);

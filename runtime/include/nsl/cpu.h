@@ -14,8 +14,15 @@
 
 #include <stdint.h>
 
-#define NSL_FRAME_CYCLES 121050u      /* 7 MHz / 57.828 Hz; see frame.h */
-#define NSL_MASK26 0x03FFFFFCu
+/* MAME fghthist.cpp: screen set_raw(28 MHz / 4, 442, 0, 320, 274, 8, 248); the ARM
+ * runs at the same 7 MHz, so one frame is 442 * 274 CPU clocks. VBLANK covers
+ * lines 248..273 and 0..7 (34 lines). */
+#define NSL_LINE_CYCLES 442u
+#define NSL_FRAME_CYCLES (442u * 274u)
+#define NSL_VBLANK_START_CYCLES (442u * 248u)
+#define NSL_VBLANK_CYCLES (442u * 34u)
+#define NSL_MASK26 0x03FFFFFCu          /* word-aligned 26-bit PC/address */
+#define NSL_ADDR26 0x03FFFFFFu          /* 26-bit byte address */
 #define NSL_PSR_N 0x80000000u
 #define NSL_PSR_Z 0x40000000u
 #define NSL_PSR_C 0x20000000u
@@ -75,16 +82,16 @@ void nsl_cpu_check_irq(void);
 
 /* data access (ARM2: a word load from an unaligned address rotates) */
 static inline uint32_t nsl_read32(uint32_t address) {
-    address &= NSL_MASK26;
+    address &= NSL_ADDR26;
     uint32_t value = nsl_bus_read32(address & ~3u);
     unsigned rotation = (address & 3u) * 8u;
     return rotation ? ((value >> rotation) | (value << (32u - rotation))) : value;
 }
-static inline uint32_t nsl_read8(uint32_t address)  { return nsl_bus_read8(address & NSL_MASK26); }
-static inline uint32_t nsl_read16(uint32_t address) { return nsl_bus_read16(address & NSL_MASK26); }
+static inline uint32_t nsl_read8(uint32_t address)  { return nsl_bus_read8(address & NSL_ADDR26); }
+static inline uint32_t nsl_read16(uint32_t address) { return nsl_bus_read16(address & NSL_ADDR26); }
 static inline void nsl_write32(uint32_t address, uint32_t value) { nsl_bus_write32(address & NSL_MASK26, value); }
-static inline void nsl_write8(uint32_t address, uint32_t value)  { nsl_bus_write8(address & NSL_MASK26, value); }
-static inline void nsl_write16(uint32_t address, uint32_t value) { nsl_bus_write16(address & NSL_MASK26, value); }
+static inline void nsl_write8(uint32_t address, uint32_t value)  { nsl_bus_write8(address & NSL_ADDR26, value); }
+static inline void nsl_write16(uint32_t address, uint32_t value) { nsl_bus_write16(address & NSL_ADDR26, value); }
 
 /* PSR */
 uint32_t nsl_get_psr(void);
