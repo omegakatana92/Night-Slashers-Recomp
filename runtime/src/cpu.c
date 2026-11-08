@@ -293,9 +293,24 @@ int nsl_ldm_loaded_pc(uint32_t list, int load) {
     return load && (list & 0x8000);
 }
 
+/* LDM/STM, ARM2 26-bit semantics (MAME arm7core 26-bit path):
+ * - LDM with R15 and S: the loaded word sets PC and the PSR bits the current mode
+ *   may change (nsl_write_pc_and_psr); without S only the PC is loaded.
+ * - LDM/STM with S and no R15 (or STM with S): transfer the user-bank registers.
+ * - STM of R15 stores PC + 12 together with the PSR bits. */
+static uint32_t *user_bank_reg(unsigned reg) {
+    static uint32_t scratch;
+    if (nsl_cpu.mode == 0) return &nsl_cpu.r[reg];
+    if (reg == 13 || reg == 14) {
+        scratch = 0;
+        return reg == 13 ? &nsl_cpu.bank13[0] : &nsl_cpu.bank14[0];
+    }
+    if (reg >= 8 && reg <= 12 && nsl_cpu.mode == 1) return &nsl_cpu.user_r8_12[reg - 8];
+    return &nsl_cpu.r[reg];
+}
+
 uint32_t nsl_ldm(uint32_t base, uint32_t list, int load, int pre, int up,
                  int writeback, int user, uint32_t pc_value, unsigned base_reg) {
-    (void)user;
     unsigned count = 0;
     for (unsigned index = 0; index < 16; index++) {
         if (list & (1u << index)) {
@@ -315,8 +330,10 @@ uint32_t nsl_ldm(uint32_t base, uint32_t list, int load, int pre, int up,
     } else {
         first = base - (count - 1) * 4;   /* DA */
     }
+    int user_bank = user && !(load && (list & 0x8000u));
     uint32_t address = first;
     uint32_t loaded_pc = 0;
+    int have_pc = 0;
     for (unsigned reg = 0; reg < 16; reg++) {
         if (!(list & (1u << reg))) {
             continue;
@@ -325,22 +342,36 @@ uint32_t nsl_ldm(uint32_t base, uint32_t list, int load, int pre, int up,
             uint32_t value = nsl_read32(address);
             if (reg == 15) {
                 loaded_pc = value;
+                have_pc = 1;
+            } else if (user_bank) {
+                *user_bank_reg(reg) = value;
             } else {
                 nsl_cpu.r[reg] = value;
             }
         } else {
-            uint32_t value = (reg == 15) ? (pc_value + 4) : nsl_cpu.r[reg];
+            uint32_t value;
+            if (reg == 15) value = nsl_r15(pc_value + 4);
+            else if (user_bank) value = *user_bank_reg(reg);
+            else value = nsl_cpu.r[reg];
             nsl_write32(address, value);
         }
         address += 4;
     }
-    if (load && loaded_pc) {
-        nsl_cpu.pc = loaded_pc & NSL_MASK26;
-    }
+    uint32_t result = base;
     if (writeback && !(load && (list & (1u << (base_reg & 15))))) {
-        return up ? base + count * 4 : base - count * 4;
+        result = up ? base + count * 4 : base - count * 4;
+        if (base_reg < 15) {
+            nsl_cpu.r[base_reg] = result;    /* before any mode change below */
+        }
     }
-    return base;
+    if (have_pc) {
+        if (user) {
+            nsl_write_pc_and_psr(loaded_pc);
+        } else {
+            nsl_cpu.pc = loaded_pc & NSL_MASK26;
+        }
+    }
+    return result;
 }
 
 /* ---- DE156 coprocessor 0 ------------------------------------------------ */

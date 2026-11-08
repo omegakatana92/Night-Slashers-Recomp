@@ -38,8 +38,8 @@ int nsl_run_frame(void) {
     nsl_cpu.vblank_count++;
     nsl_machine_set_vblank(1);
     nsl_machine.vblank_end_cycle = frame_end + NSL_VBLANK_CYCLES;
+    nsl_video_end_frame();
     nsl_machine.frame_count++;
-    nsl_machine_render();
     return 0;
 }
 

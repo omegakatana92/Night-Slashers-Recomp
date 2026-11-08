@@ -141,8 +141,11 @@ class Analysis:
         address &= 0x3FFFFFF
         return decode(self.word(address), address)
 
-    def run(self) -> "Analysis":
+    def run(self, seeds: tuple[int, ...] | list[int] = ()) -> "Analysis":
         pending: list[tuple[int, str]] = []
+        # entry points recorded at run time by the fallback (tools/traced_targets.txt)
+        for seed in seeds:
+            pending.append((seed & 0x3FFFFFC, "seed"))
         for vector in range(8):
             handler = self.word(vector * 4)
             # The vector itself is an instruction (normally B); follow its target.
