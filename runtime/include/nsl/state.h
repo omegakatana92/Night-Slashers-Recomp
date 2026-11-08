@@ -36,5 +36,9 @@ typedef struct NslStateHeader {
 /* Reads and validates only the header (for slot lists). */
 int nsl_state_peek(const uint8_t *buffer, size_t size, NslStateHeader *header, char *error, size_t error_size);
 void nsl_state_set_timestamp(uint8_t *buffer, size_t size, int64_t timestamp);
+/* Extracts the stored screen (320x240 0x00RRGGBB) for slot previews. */
+int nsl_state_preview(const uint8_t *buffer, size_t size, uint32_t *pixels);
+/* 0 = loadable by this build, otherwise writes why not. */
+int nsl_state_check(const uint8_t *buffer, size_t size, char *error, size_t error_size);
 
 #endif

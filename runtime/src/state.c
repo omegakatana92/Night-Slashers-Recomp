@@ -30,6 +30,8 @@ typedef struct Section {
     uint32_t size;
 } Section;
 
+int nsl_state_compression_level = 6;      /* the rewind buffer uses 1 for speed */
+
 typedef struct CpuSnapshot {
     NslCpu cpu;
 } CpuSnapshot;
@@ -106,7 +108,7 @@ int nsl_core_save_state(uint8_t *buffer, size_t size) {
     header.frame_number = nsl_machine.frame_count;
 
     mz_ulong compressed = (mz_ulong)(size - sizeof(header));
-    int z = mz_compress2(buffer + sizeof(header), &compressed, raw, (mz_ulong)raw_size, 6);
+    int z = mz_compress2(buffer + sizeof(header), &compressed, raw, (mz_ulong)raw_size, nsl_state_compression_level);
     free(raw);
     if (z != MZ_OK) return -1;
     header.compressed_size = (uint32_t)compressed;
@@ -232,5 +234,55 @@ int nsl_core_load_state(const uint8_t *buffer, size_t size, char *error, size_t 
     memcpy(nsl_host.framebuffer, frame, sizeof(nsl_host.framebuffer));
     nsl_machine.rendered_until = NSL_SCREEN_TOP;
     free(raw);
+    return 0;
+}
+
+int nsl_state_preview(const uint8_t *buffer, size_t size, uint32_t *pixels) {
+    NslStateHeader header;
+    char error[128];
+    if (nsl_state_peek(buffer, size, &header, error, sizeof(error)) != 0) return -1;
+    if (header.payload_size > 64u * 1024u * 1024u) return -1;
+    uint8_t *raw = (uint8_t *)malloc(header.payload_size);
+    if (!raw) return -1;
+    mz_ulong raw_size = header.payload_size;
+    if (mz_uncompress(raw, &raw_size, buffer + sizeof(header), header.compressed_size) != MZ_OK) {
+        free(raw);
+        return -1;
+    }
+    /* walk the sections to FRAM */
+    const uint8_t *p = raw, *end = raw + raw_size;
+    int found = -1;
+    while ((size_t)(end - p) >= sizeof(Section)) {
+        Section s;
+        memcpy(&s, p, sizeof(s));
+        p += sizeof(s);
+        if ((size_t)(end - p) < s.size) break;
+        if (!memcmp(s.tag, "FRAM", 4) && s.size == NSL_SCREEN_WIDTH * NSL_SCREEN_HEIGHT * 4) {
+            memcpy(pixels, p, s.size);
+            found = 0;
+            break;
+        }
+        p += s.size;
+    }
+    free(raw);
+    return found;
+}
+
+int nsl_state_check(const uint8_t *buffer, size_t size, char *error, size_t error_size) {
+    NslStateHeader header;
+    if (nsl_state_peek(buffer, size, &header, error, error_size) != 0) return -1;
+    if (header.program_crc != nsl_translated_program_crc32) {
+        snprintf(error, error_size, "Made with a different program revision.");
+        return -1;
+    }
+    if (nsl_core_loaded() && header.rom_fingerprint != nsl_core_rom_fingerprint()) {
+        snprintf(error, error_size, "Made with different ROM data.");
+        return -1;
+    }
+    if (header.layout_cpu != sizeof(NslCpu) || header.layout_machine != sizeof(NslMachine)
+        || header.layout_sound != nsl_sound_state_size()) {
+        snprintf(error, error_size, "Made by an incompatible build.");
+        return -1;
+    }
     return 0;
 }

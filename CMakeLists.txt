@@ -65,6 +65,11 @@ else()
     endif()
 endif()
 
+if(MINGW)
+    # self-contained executables: no libgcc/libstdc++/winpthread DLLs to ship
+    add_link_options(-static -static-libgcc -static-libstdc++)
+endif()
+
 set(NSL_OUTPUT_DIR "${CMAKE_BINARY_DIR}/bin")
 
 if(NSL_BUILD_HEADLESS)
@@ -90,10 +95,10 @@ if(NSL_BUILD_SDL2)
         target_include_directories(nightslashers PRIVATE ports/sdl2)
         target_link_libraries(nightslashers PRIVATE nsl_runtime)
         if(TARGET SDL2::SDL2)
-            target_link_libraries(nightslashers PRIVATE SDL2::SDL2)
-            if(TARGET SDL2::SDL2main)
-                target_link_libraries(nightslashers PRIVATE SDL2::SDL2main)
+            if(WIN32 AND TARGET SDL2::SDL2main)
+                target_link_libraries(nightslashers PRIVATE SDL2::SDL2main)   # WinMain -> SDL_main
             endif()
+            target_link_libraries(nightslashers PRIVATE SDL2::SDL2)
         else()
             target_link_libraries(nightslashers PRIVATE PkgConfig::SDL2)
         endif()

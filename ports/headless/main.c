@@ -50,6 +50,7 @@ int main(int argc, char **argv) {
     const char *png_dir = NULL, *png_at_path = NULL, *state_out = NULL, *state_in = NULL;
     int png_every = 0, png_at = -1, state_at = -1;
     int coin_at = -1, start_at = -1;
+    unsigned autoplay = 0;
     int trace_cpu = 0, trace_after = 0, trace_deco = 0, trace_eeprom = 0;
     uint32_t trace_pc = 0;
     int trace_pc_count = 0;
@@ -68,6 +69,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--png-at") && i + 2 < argc) { png_at = atoi(argv[++i]); png_at_path = argv[++i]; }
         else if (!strcmp(a, "--save-state-at") && i + 2 < argc) { state_at = atoi(argv[++i]); state_out = argv[++i]; }
         else if (!strcmp(a, "--load-state") && i + 1 < argc) state_in = argv[++i];
+        else if (!strcmp(a, "--autoplay") && i + 1 < argc) autoplay = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(a, "--coin-at") && i + 1 < argc) coin_at = atoi(argv[++i]);
         else if (!strcmp(a, "--start-at") && i + 1 < argc) start_at = atoi(argv[++i]);
         else if (!strcmp(a, "--trace-cpu") && i + 1 < argc) trace_cpu = atoi(argv[++i]);
@@ -120,6 +122,20 @@ int main(int argc, char **argv) {
         memset(&input, 0, sizeof(input));
         if (coin_at >= 0 && frame >= coin_at && frame < coin_at + 6) input.player[0] |= NSL_IN_COIN;
         if (start_at >= 0 && frame >= start_at && frame < start_at + 6) input.player[0] |= NSL_IN_START;
+        if (autoplay && start_at >= 0 && frame > start_at + 60) {
+            static uint16_t held;
+            if (frame % 8 == 0) {
+                autoplay = autoplay * 1103515245u + 12345u;
+                unsigned r = autoplay >> 16;
+                held = (uint16_t)((r & 3) == 0 ? NSL_IN_LEFT : (r & 3) == 1 ? NSL_IN_RIGHT : 0);
+                if (r & 4) held |= NSL_IN_UP; else if (r & 8) held |= NSL_IN_DOWN;
+                if (r & 0x30) held |= NSL_IN_B1;
+                if ((r & 0xC0) == 0xC0) held |= NSL_IN_B2;
+                if ((r & 0x300) == 0x300) held |= NSL_IN_B3;
+            }
+            input.player[0] |= held;
+            if (frame % 600 == 0) input.player[0] |= NSL_IN_COIN | NSL_IN_START;   /* continue */
+        }
         if (nsl_core_run_frame(&input) != 0) {
             fprintf(stderr, "frame %d: %s\n", frame, nsl_core_fault_text());
             rc = 1;
