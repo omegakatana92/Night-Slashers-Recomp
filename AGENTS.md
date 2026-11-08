@@ -6,9 +6,12 @@ Build genuine native ports of **Night Slashers** (Data East, 1994, ROM set `nsla
 Japan clone `nslasherj`) for Windows 11 x64 and SteamOS/Linux x86-64, with the ahead-of-time
 translation architecture of `cheviman/arcade-decomp`.
 
-This is **not** an emulator and must not ship an emulator core. The ARM2 program is decrypted
-from the player's ROM, translated ahead of time into C and compiled to native code. The
-runtime implements the DECO32 board directly.
+This is **not** an emulator. The ARM2 program is decrypted from the player's ROM, translated
+ahead of time into C and compiled to native code; the runtime implements the DECO32 board
+directly. Two documented exceptions exist (see docs/KNOWN_ISSUES.md): the fallback in
+`runtime/src/interp.c` runs ARM code the analysis has not seen yet (record it in
+`tools/traced_targets.txt`), and the Z80 sound program runs on superzazu/z80 until it is
+translated too.
 
 ## Non-negotiables
 
@@ -32,6 +35,8 @@ runtime implements the DECO32 board directly.
 
 ## Build and test
 
+Front end and checks: `ports/sdl2`, `tests/ui_smoke.sh`, `docs/milestones/`.
+
 ```powershell
 python tools\verify_rom.py rom\nslasher.zip
 python tools\recompile.py rom\nslasher.zip
@@ -41,8 +46,7 @@ build\vs\bin\nsl_headless.exe --frames 60 --hashes build\boot.hashes
 ```
 
 A change is not complete unless ROM verification, translation without `Unsupported`, and a
-headless run are recorded. Do not publish a release while `docs/KNOWN_ISSUES.md` reports the
-boot blocker.
+headless run are recorded. Save-state layout changes must bump `NSL_STATE_VERSION`.
 
 ## Style
 

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Night Slashers Recomp
+Comment=Native recompilation of Night Slashers (requires your own nslasher.zip)
+Exec=nightslashers
+Icon=nightslashers
+Categories=Game;ArcadeGame;
+Terminal=false

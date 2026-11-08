@@ -46,3 +46,13 @@ Generated files live under `build/` and are ignored by Git.
 
 Any future release archive must contain this `LICENSES/` directory, the GPL-2.0 `LICENSE`,
 the arcade-decomp BSD-3-Clause notice and the MAME BSD-3-Clause notice.
+
+## Additions in 0.2.0
+
+ymfm (BSD-3-Clause), superzazu/z80 (MIT), font8x8 (public domain) and SDL2 (zlib) were
+added; see `THIRD_PARTY.md` and `LICENSES/`.
+
+**Distribution note.** Release executables contain C translated from the Night Slashers
+program ROM. That code is derived from copyrighted data even though the ROM itself is not
+shipped. Whether publishing such binaries is acceptable is a decision for the repository
+owner; the source repository itself never contains translated code or ROM data.

@@ -962,9 +962,17 @@ void menus_draw(void) {
             char shown[128];
             snprintf(shown, sizeof(shown), it->kind == K_VALUE && focused ? "< %s >" : "%s", it->value);
             int max_chars = (lw / 2) / (ui_text_width("M", s) ? ui_text_width("M", s) : 1);
-            if ((int)strlen(shown) > max_chars && max_chars > 4) {
-                memmove(shown + 3, shown + strlen(shown) - (max_chars - 3), (size_t)(max_chars - 3) + 1);
-                shown[0] = shown[1] = shown[2] = '.';
+            if (ui_glyph_count(shown) > max_chars && max_chars > 4) {
+                /* keep the tail (file names), cut on a UTF-8 boundary */
+                const char *tail = shown + strlen(shown);
+                int keep = 0;
+                while (tail > shown && keep < max_chars - 3) {
+                    tail--;
+                    if (((unsigned char)*tail & 0xC0) != 0x80) keep++;
+                }
+                char cut[128];
+                snprintf(cut, sizeof(cut), "...%s", tail);
+                snprintf(shown, sizeof(shown), "%s", cut);
             }
             ui_text_right(lx + lw - 6, y, shown, s, focused ? accent() : ui_rgba(170, 170, 185, alpha));
         }
@@ -976,9 +984,9 @@ void menus_draw(void) {
     Item *focus = &g_items[p->focus];
     int desc_y = g_app.height - g_app.height / 6 + 16;
     if (p->page == P_ROM && g_rom_message[0]) {
-        ui_text(g_app.width / 16, desc_y, g_rom_message, s - (s > 2), ui_rgba(255, 210, 120, alpha));
+        ui_text_wrapped(g_app.width / 16, desc_y - 16 * s / 2, g_app.width * 7 / 8, g_rom_message, s - (s > 2), ui_rgba(255, 210, 120, alpha));
     } else if (focus->desc[0]) {
-        ui_text(g_app.width / 16, desc_y, focus->desc, s - (s > 2), ui_rgba(185, 185, 195, alpha));
+        ui_text_wrapped(g_app.width / 16, desc_y, g_app.width * 7 / 8, focus->desc, s - (s > 2), ui_rgba(185, 185, 195, alpha));
     }
 
     /* slot preview */

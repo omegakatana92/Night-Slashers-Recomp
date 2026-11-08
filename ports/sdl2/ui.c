@@ -76,18 +76,49 @@ void ui_shutdown(void) {
     g_font = NULL;
 }
 
+/* UTF-8 -> glyph: ASCII as is, Latin-1 letters folded to their base letter, others '?'. */
+static int next_glyph(const unsigned char **text) {
+    const unsigned char *p = *text;
+    unsigned cp;
+    int extra;
+    if (p[0] < 0x80) { cp = p[0]; extra = 0; }
+    else if ((p[0] & 0xE0) == 0xC0) { cp = p[0] & 0x1F; extra = 1; }
+    else if ((p[0] & 0xF0) == 0xE0) { cp = p[0] & 0x0F; extra = 2; }
+    else if ((p[0] & 0xF8) == 0xF0) { cp = p[0] & 0x07; extra = 3; }
+    else { *text = p + 1; return '?'; }
+    p++;
+    for (int i = 0; i < extra; i++) {
+        if ((*p & 0xC0) != 0x80) { *text = p; return '?'; }
+        cp = (cp << 6) | (*p & 0x3F);
+        p++;
+    }
+    *text = p;
+    if (cp < 0x80) return (int)cp;
+    static const char latin[] =            /* U+00C0 .. U+00FF */
+        "AAAAAAACEEEEIIIIDNOOOOOxOUUUUYPs" "aaaaaaaceeeeiiiidnooooo/ouuuuypy";
+    if (cp >= 0xC0 && cp <= 0xFF) return latin[cp - 0xC0];
+    return '?';
+}
+
+int ui_glyph_count(const char *text) {
+    int n = 0;
+    const unsigned char *p = (const unsigned char *)text;
+    while (*p) { next_glyph(&p); n++; }
+    return n;
+}
+
 static int advance(int scale) { return (GLYPH * scale / 2) * 7 / 8; }   /* slight tracking */
 
 int ui_text_width(const char *text, int scale) {
-    return (int)strlen(text) * advance(scale);
+    return ui_glyph_count(text) * advance(scale);
 }
 
 void ui_text(int x, int y, const char *text, int scale, UiColor color) {
     int size = GLYPH * scale / 2;
     SDL_SetTextureColorMod(g_font, color.r, color.g, color.b);
     SDL_SetTextureAlphaMod(g_font, color.a);
-    for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
-        int c = *p < 128 ? *p : '?';
+    for (const unsigned char *p = (const unsigned char *)text; *p;) {
+        int c = next_glyph(&p);
         SDL_Rect src = { (c % 16) * GLYPH, (c / 16) * GLYPH, GLYPH, GLYPH };
         SDL_Rect dst = { x, y, size, size };
         if (c != ' ') SDL_RenderCopy(g_renderer, g_font, &src, &dst);
@@ -144,4 +175,37 @@ UiColor ui_mix(UiColor a, UiColor b, float t) {
     c.b = (Uint8)(a.b + (b.b - a.b) * t);
     c.a = (Uint8)(a.a + (b.a - a.a) * t);
     return c;
+}
+
+int ui_text_wrapped(int x, int y, int width, const char *text, int scale, UiColor color) {
+    /* word wrap on spaces, hard breaks on '\n'; returns the height used */
+    int line_h = 16 * scale / 2 + 4;
+    int max_glyphs = width / advance(scale);
+    if (max_glyphs < 8) max_glyphs = 8;
+    char line[512];
+    const char *p = text;
+    int lines = 0;
+    while (*p) {
+        const char *start = p, *last_space = NULL, *q = p;
+        int count = 0;
+        while (*q && *q != '\n') {
+            const unsigned char *g = (const unsigned char *)q;
+            next_glyph(&g);
+            if (*q == ' ') last_space = q;
+            if (++count > max_glyphs) break;
+            q = (const char *)g;
+        }
+        const char *end = q;
+        if (*q && *q != '\n' && last_space && last_space > start) end = last_space;
+        size_t n = (size_t)(end - start);
+        if (n >= sizeof(line)) n = sizeof(line) - 1;
+        memcpy(line, start, n);
+        line[n] = 0;
+        ui_text(x, y + lines * line_h, line, scale, color);
+        lines++;
+        p = end;
+        while (*p == ' ' || *p == '\n') p++;
+        if (lines > 8) break;
+    }
+    return lines * line_h;
 }

@@ -51,6 +51,7 @@ int main(int argc, char **argv) {
     int png_every = 0, png_at = -1, state_at = -1;
     int coin_at = -1, start_at = -1;
     unsigned autoplay = 0;
+    int input_until = -1;
     int trace_cpu = 0, trace_after = 0, trace_deco = 0, trace_eeprom = 0;
     uint32_t trace_pc = 0;
     int trace_pc_count = 0;
@@ -69,6 +70,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--png-at") && i + 2 < argc) { png_at = atoi(argv[++i]); png_at_path = argv[++i]; }
         else if (!strcmp(a, "--save-state-at") && i + 2 < argc) { state_at = atoi(argv[++i]); state_out = argv[++i]; }
         else if (!strcmp(a, "--load-state") && i + 1 < argc) state_in = argv[++i];
+        else if (!strcmp(a, "--input-until") && i + 1 < argc) input_until = atoi(argv[++i]);
         else if (!strcmp(a, "--autoplay") && i + 1 < argc) autoplay = (unsigned)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(a, "--coin-at") && i + 1 < argc) coin_at = atoi(argv[++i]);
         else if (!strcmp(a, "--start-at") && i + 1 < argc) start_at = atoi(argv[++i]);
@@ -136,6 +138,7 @@ int main(int argc, char **argv) {
             input.player[0] |= held;
             if (frame % 600 == 0) input.player[0] |= NSL_IN_COIN | NSL_IN_START;   /* continue */
         }
+        if (input_until >= 0 && frame >= input_until) memset(&input, 0, sizeof(input));
         if (nsl_core_run_frame(&input) != 0) {
             fprintf(stderr, "frame %d: %s\n", frame, nsl_core_fault_text());
             rc = 1;

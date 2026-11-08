@@ -65,6 +65,16 @@ else()
     endif()
 endif()
 
+# AppImage build: look for the bundled SDL2 in ../lib. libstdc++/libgcc stay dynamic on
+# purpose: a static libstdc++ from a new toolchain pulls in glibc 2.35-2.38 symbols,
+# while the host's own libstdc++ (always present on SteamOS) keeps the glibc floor at 2.34.
+option(NSL_PORTABLE_LINUX "Look for bundled libraries in ../lib (AppImage)" OFF)
+if(NSL_PORTABLE_LINUX AND UNIX AND NOT APPLE)
+    set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib")
+    set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
+endif()
+
 if(MINGW)
     # self-contained executables: no libgcc/libstdc++/winpthread DLLs to ship
     add_link_options(-static -static-libgcc -static-libstdc++)
