@@ -46,6 +46,7 @@ int main(int argc, char **argv) {
     int frames = 600;
     const char *rom_path = "rom/nslasher.zip";
     const char *hash_path = NULL, *eeprom_path = NULL, *save_eeprom_path = NULL, *dump_ram_path = NULL;
+    const char *wav_path = NULL;
     const char *png_dir = NULL, *png_at_path = NULL, *state_out = NULL, *state_in = NULL;
     int png_every = 0, png_at = -1, state_at = -1;
     int coin_at = -1, start_at = -1;
@@ -61,6 +62,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--eeprom") && i + 1 < argc) eeprom_path = argv[++i];
         else if (!strcmp(a, "--save-eeprom") && i + 1 < argc) save_eeprom_path = argv[++i];
         else if (!strcmp(a, "--dump-ram") && i + 1 < argc) dump_ram_path = argv[++i];
+        else if (!strcmp(a, "--wav") && i + 1 < argc) wav_path = argv[++i];
         else if (!strcmp(a, "--png-every") && i + 1 < argc) png_every = atoi(argv[++i]);
         else if (!strcmp(a, "--png-dir") && i + 1 < argc) png_dir = argv[++i];
         else if (!strcmp(a, "--png-at") && i + 2 < argc) { png_at = atoi(argv[++i]); png_at_path = argv[++i]; }
@@ -109,6 +111,9 @@ int main(int argc, char **argv) {
     FILE *hashes = hash_path ? nsl_fopen(hash_path, "w") : NULL;
     if (png_dir) nsl_make_directories(png_dir);
 
+    FILE *wav = wav_path ? nsl_fopen(wav_path, "wb") : NULL;
+    uint32_t wav_frames = 0;
+    if (wav) { uint8_t zero[44] = {0}; fwrite(zero, 1, 44, wav); }
     int rc = 0;
     for (int frame = 0; frame < frames; frame++) {
         NslInputState input;
@@ -120,8 +125,16 @@ int main(int argc, char **argv) {
             rc = 1;
             break;
         }
+        if (wav) {
+            const int16_t *samples;
+            size_t count = nsl_core_audio(&samples);
+            fwrite(samples, 4, count, wav);
+            wav_frames += (uint32_t)count;
+        }
         if (hashes) {
-            fprintf(hashes, "%d %08X %08X %08X\n", frame,
+            const int16_t *audio;
+            size_t audio_count = nsl_core_audio(&audio);
+            fprintf(hashes, "%d %08X %08X %08X %08X\n", frame, fnv1a(audio, audio_count * 4),
                     fnv1a(nsl_machine.ram, sizeof(nsl_machine.ram)),
                     fnv1a(nsl_host.framebuffer, sizeof(nsl_host.framebuffer)),
                     fnv1a(nsl_machine.palette_buffered, sizeof(nsl_machine.palette_buffered)));
@@ -143,6 +156,16 @@ int main(int argc, char **argv) {
         }
     }
     if (hashes) fclose(hashes);
+    if (wav) {
+        uint32_t rate = (uint32_t)nsl_core_audio_rate(), data = wav_frames * 4;
+        uint8_t h[44] = { 'R','I','F','F', 0,0,0,0, 'W','A','V','E', 'f','m','t',' ', 16,0,0,0, 1,0, 2,0,
+                          0,0,0,0, 0,0,0,0, 4,0, 16,0, 'd','a','t','a', 0,0,0,0 };
+        uint32_t riff = 36 + data, bytes = rate * 4;
+        memcpy(h + 4, &riff, 4); memcpy(h + 24, &rate, 4); memcpy(h + 28, &bytes, 4); memcpy(h + 40, &data, 4);
+        fseek(wav, 0, SEEK_SET);
+        fwrite(h, 1, 44, wav);
+        fclose(wav);
+    }
     if (save_eeprom_path && nsl_machine_save_eeprom(save_eeprom_path) != 0) {
         fprintf(stderr, "cannot write EEPROM image %s\n", save_eeprom_path);
     }

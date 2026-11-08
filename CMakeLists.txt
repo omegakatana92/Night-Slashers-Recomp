@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
-project(NightSlashersNative VERSION 0.2.0 LANGUAGES C)
+project(NightSlashersNative VERSION 0.2.0 LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -28,6 +30,11 @@ add_library(nsl_miniz STATIC
 target_include_directories(nsl_miniz PUBLIC ${MINIZ_DIR})
 target_compile_definitions(nsl_miniz PUBLIC MINIZ_NO_TIME PRIVATE _GNU_SOURCE _LARGEFILE64_SOURCE)
 
+add_library(nsl_z80 STATIC runtime/third_party/z80/z80.c)
+target_include_directories(nsl_z80 PUBLIC runtime/third_party/z80)
+add_library(nsl_ymfm STATIC runtime/third_party/ymfm/ymfm_opm.cpp)
+target_include_directories(nsl_ymfm PUBLIC runtime/third_party/ymfm)
+
 add_library(nsl_runtime STATIC
     runtime/src/core.c
     runtime/src/interp.c
@@ -36,7 +43,7 @@ add_library(nsl_runtime STATIC
     runtime/src/platform.c
     runtime/src/rom.c
     runtime/src/run.c
-    runtime/src/sound.c
+    runtime/src/sound.cpp
     runtime/src/state.c
     runtime/src/video.c
     ${NSL_GENERATED_SOURCES}
@@ -45,7 +52,7 @@ target_include_directories(nsl_runtime
     PUBLIC runtime/include
     PRIVATE runtime/src ${NSL_GENERATED_DIR}
 )
-target_link_libraries(nsl_runtime PUBLIC nsl_miniz)
+target_link_libraries(nsl_runtime PUBLIC nsl_miniz nsl_z80 nsl_ymfm)
 
 if(MSVC)
     target_compile_options(nsl_runtime PRIVATE /W3)

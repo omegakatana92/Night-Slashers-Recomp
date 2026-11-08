@@ -6,6 +6,7 @@
 #include "nsl/machine.h"
 #include "nsl/cpu.h"
 #include "nsl/platform.h"
+#include "nsl/sound.h"
 #include "deco104_table.h"
 
 #include <stdio.h>
@@ -66,7 +67,7 @@ void nsl_machine_set_vblank(int active) {
 void nsl_machine_reset(void) {
     uint16_t in0 = nsl_machine.inputs_in0, in1 = nsl_machine.inputs_in1;
     memset(&nsl_machine, 0, sizeof(nsl_machine));
-    nsl_machine.volume = 0x1100;
+    nsl_machine.volume = 0;              /* 0x00 = full volume (volume_w) */
     for (unsigned bank = 0; bank < 2; bank++) {
         for (unsigned index = 0; index < 0x80; index++) {
             nsl_machine.deco_ram[bank][index] = 0xFFFF;
@@ -330,7 +331,7 @@ static void deco_write_protport(uint16_t address, uint16_t data) {
     } else if (low == 0xA8) {
         nsl_machine.soundlatch = (uint16_t)(data & 0xFF);
         nsl_machine.soundlatch_writes++;
-        nsl_machine.soundlatch_irq = 1;     /* deco_146 soundlatch_irq_cb -> Z80 IRQ */
+        nsl_sound_latch_write((uint8_t)data);   /* soundlatch_irq_cb -> Z80 IRQ */
     }
     nsl_machine.deco_ram[nsl_machine.deco_bank][low >> 1] = data;
 }
